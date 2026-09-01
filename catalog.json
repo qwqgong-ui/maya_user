@@ -1,0 +1,17 @@
+{
+  "name": "maya_user",
+  "version": "0.1.0",
+  "categories": [
+    {
+      "id": "polygon-modeling",
+      "name": "多边形建模",
+      "tools": [
+        {
+          "id": "round-chamfer",
+          "name": "圆角切角",
+          "module": "maya_user.polygon_modeling.round_chamfer_ui"
+        }
+      ]
+    }
+  ]
+}
