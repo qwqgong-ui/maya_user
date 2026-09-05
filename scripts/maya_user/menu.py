@@ -35,6 +35,13 @@ def install_menu():
         command=lambda *_: _open_round_chamfer(),
     )
 
+    cmds.menuItem(
+        label="底部枢轴 → 原点 → 冻结",
+        annotation="枢轴移到当前本地轴 -Y 底部，烘焙枢轴，移到 0,0,0 并冻结变换",
+        parent=polygon,
+        command=lambda *_: _pivot_bottom_origin_freeze(),
+    )
+
     cmds.setParent(menu, menu=True)
     return menu
 
@@ -42,3 +49,8 @@ def install_menu():
 def _open_round_chamfer():
     from maya_user.polygon_modeling import round_chamfer_ui
     round_chamfer_ui.show()
+
+
+def _pivot_bottom_origin_freeze():
+    from maya_user.polygon_modeling import pivot_bottom_origin_freeze
+    pivot_bottom_origin_freeze.run()
