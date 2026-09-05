@@ -10,6 +10,11 @@
           "id": "round-chamfer",
           "name": "圆角切角",
           "module": "maya_user.polygon_modeling.round_chamfer_ui"
+        },
+        {
+          "id": "pivot-bottom-origin-freeze",
+          "name": "底部枢轴 → 原点 → 冻结",
+          "module": "maya_user.polygon_modeling.pivot_bottom_origin_freeze"
         }
       ]
     }
