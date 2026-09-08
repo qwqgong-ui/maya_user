@@ -198,6 +198,40 @@ def calculate_distance(length1, length2, mode, distance, percent):
         cmds.error("切角距离超过原边长度。")
     return tangent
 
+def quadratic_point(p1, control, p2, t):
+    omt = 1.0 - t
+    return add(
+        add(mul(p1, omt * omt), mul(control, 2.0 * omt * t)),
+        mul(p2, t * t),
+    )
+
+
+def edge_percent_parameter(direction, u1, u2, distance1, distance2):
+    c = dot(u1, u2)
+    denom = 1.0 - c * c
+    if abs(denom) < _EPS:
+        cmds.error("两条边夹角异常，无法计算双边百分比曲线。")
+
+    du = dot(direction, u1)
+    dv = dot(direction, u2)
+    a = (du - c * dv) / denom
+    b = (dv - c * du) / denom
+    tolerance = 1e-8
+    if a < -tolerance or b < -tolerance:
+        return None
+    a = max(0.0, a)
+    b = max(0.0, b)
+    if b <= tolerance:
+        return 0.0
+    if a <= tolerance:
+        return 1.0
+
+    ratio = (b * distance1) / (a * distance2)
+    if ratio < 0.0:
+        return None
+    k = math.sqrt(ratio)
+    return k / (1.0 + k)
+
 
 def fillet_geometry(origin, u1, u2, tangent_distance, segments):
     if segments < 1:
@@ -385,10 +419,22 @@ def round_outer_boundary(vertex, mode, distance, percent, segments, flip=True):
     u1 = normalize(vec1)
     u2 = normalize(vec2)
 
-    tangent_distance = calculate_distance(len1, len2, mode, distance, percent)
-    _p1, _p2, center, radius, _arc_points = fillet_geometry(
-        origin, u1, u2, tangent_distance, segments
-    )
+    curve_p1 = None
+    curve_p2 = None
+    radius = None
+    if mode == "edge_percent":
+        if percent <= 0.0 or percent >= 1.0:
+            cmds.error("双边百分比必须在 0 和 100 之间。")
+        distance1 = len1 * percent
+        distance2 = len2 * percent
+        curve_p1 = add(origin, mul(u1, distance1))
+        curve_p2 = add(origin, mul(u2, distance2))
+        tangent_distance = (distance1, distance2)
+    else:
+        tangent_distance = calculate_distance(len1, len2, mode, distance, percent)
+        _p1, _p2, center, radius, _arc_points = fillet_geometry(
+            origin, u1, u2, tangent_distance, segments
+        )
 
     fan = find_face_fan(vertex, edge1, edge2)
     directions = []
@@ -418,11 +464,24 @@ def round_outer_boundary(vertex, mode, distance, percent, segments, flip=True):
         base_vertices.append(new_vertex)
 
     ordered_points = []
-    for direction, max_length in zip(directions, lengths):
-        p = circle_ray_intersection(origin, direction, center, radius, max_length)
-        if p is None:
-            cmds.error("圆弧与当前拓扑边没有有效交点，切角距离可能过大。")
-        ordered_points.append(p)
+    curve_parameters = []
+    if mode == "edge_percent":
+        distance1, distance2 = tangent_distance
+        for direction, max_length in zip(directions, lengths):
+            t = edge_percent_parameter(direction, u1, u2, distance1, distance2)
+            if t is None:
+                cmds.error("双边百分比曲线与当前拓扑边没有有效交点。")
+            p = quadratic_point(curve_p1, origin, curve_p2, t)
+            if length(sub(p, origin)) > max_length + max(max_length * 1e-5, 1e-6):
+                cmds.error("双边百分比切点超过当前拓扑边长度。")
+            curve_parameters.append(t)
+            ordered_points.append(p)
+    else:
+        for direction, max_length in zip(directions, lengths):
+            p = circle_ray_intersection(origin, direction, center, radius, max_length)
+            if p is None:
+                cmds.error("圆弧与当前拓扑边没有有效交点，切角距离可能过大。")
+            ordered_points.append(p)
 
     for vertex_component, p in zip(base_vertices, ordered_points):
         cmds.xform(vertex_component, ws=True, t=p)
@@ -466,17 +525,26 @@ def round_outer_boundary(vertex, mode, distance, percent, segments, flip=True):
             cmds.error("外角切割边长度异常。")
         added.sort(key=lambda v: dot(sub(position(v), start), chord) / chord_l2)
 
-        r_start = normalize(sub(start, center))
-        r_end = normalize(sub(end, center))
-        angle = math.acos(clamp(dot(r_start, r_end), -1.0, 1.0))
-        axis = normalize(cross(r_start, r_end))
-        if length(axis) < _EPS:
-            cmds.error("无法确定外角圆弧方向。")
+        if mode == "edge_percent":
+            t_start = curve_parameters[interval]
+            t_end = curve_parameters[interval + 1]
+            for j, vtx in enumerate(added, start=1):
+                local_t = float(j) / float(pieces)
+                global_t = t_start + (t_end - t_start) * local_t
+                p = quadratic_point(curve_p1, origin, curve_p2, global_t)
+                cmds.xform(vtx, ws=True, t=p)
+        else:
+            r_start = normalize(sub(start, center))
+            r_end = normalize(sub(end, center))
+            angle = math.acos(clamp(dot(r_start, r_end), -1.0, 1.0))
+            axis = normalize(cross(r_start, r_end))
+            if length(axis) < _EPS:
+                cmds.error("无法确定外角圆弧方向。")
 
-        for j, vtx in enumerate(added, start=1):
-            local_t = float(j) / float(pieces)
-            p = add(center, mul(rotate(r_start, axis, angle * local_t), radius))
-            cmds.xform(vtx, ws=True, t=p)
+            for j, vtx in enumerate(added, start=1):
+                local_t = float(j) / float(pieces)
+                p = add(center, mul(rotate(r_start, axis, angle * local_t), radius))
+                cmds.xform(vtx, ws=True, t=p)
 
     delete_faces = vertex_faces(vertex)
     if delete_faces:
@@ -505,6 +573,8 @@ def chamfer_round(
             )
             corner_type = "OUTER"
         elif len(edges) == 2 and not vertices:
+            if mode == "edge_percent":
+                cmds.error("双边百分比模式仅用于选择 1 个边界顶点的外角。")
             length1, length2, tangent_distance, radius = round_inner_boundary(
                 edges, mode, distance, percent, segments
             )
@@ -515,20 +585,19 @@ def chamfer_round(
             )
             return
 
-        print(
-            "圆角完成 | %s | %s | edge1=%.6f | edge2=%.6f | "
-            "tangent=%.6f | radius=%.6f | segments=%d | flip=%s"
-            % (
-                corner_type,
-                mode.upper(),
-                length1,
-                length2,
-                tangent_distance,
-                radius,
-                segments,
-                bool(flip),
+        if mode == "edge_percent":
+            distance1, distance2 = tangent_distance
+            print(
+                "圆角完成 | %s | EDGE_PERCENT | edge1=%.6f | edge2=%.6f | "
+                "cut1=%.6f | cut2=%.6f | segments=%d | flip=%s"
+                % (corner_type, length1, length2, distance1, distance2, segments, bool(flip))
             )
-        )
+        else:
+            print(
+                "圆角完成 | %s | %s | edge1=%.6f | edge2=%.6f | "
+                "tangent=%.6f | radius=%.6f | segments=%d | flip=%s"
+                % (corner_type, mode.upper(), length1, length2, tangent_distance, radius, segments, bool(flip))
+            )
     finally:
         cmds.undoInfo(closeChunk=True)
 
@@ -579,7 +648,8 @@ def show():
     )
     cmds.text(label="模式：")
     mode_menu = cmds.optionMenu()
-    cmds.menuItem(label="百分比")
+    cmds.menuItem(label="百分比（统一圆弧）")
+    cmds.menuItem(label="双边百分比（单顶点）")
     cmds.menuItem(label="固定距离")
     cmds.setParent(root)
 
@@ -597,7 +667,7 @@ def show():
         value1=_get_float(OPT_PERCENT, 25.0),
         precision=2,
         columnWidth2=(96, 240),
-        annotation="按两侧边界允许值取较小值，保持严格相切圆弧。",
+        annotation="统一圆弧按较短侧计算；双边百分比按两条边自身长度分别计算。",
     )
 
     segments_field = cmds.intFieldGrp(
@@ -619,30 +689,24 @@ def show():
     cmds.separator(style="in", height=10)
 
     def sync_enabled(*_):
-        current_mode = (
-            "percent"
-            if cmds.optionMenu(mode_menu, q=True, select=True) == 1
-            else "absolute"
-        )
+        selected_mode = cmds.optionMenu(mode_menu, q=True, select=True)
+        current_mode = "percent" if selected_mode == 1 else ("edge_percent" if selected_mode == 2 else "absolute")
         cmds.floatFieldGrp(
-            percent_field, e=True, enable=(current_mode == "percent")
+            percent_field, e=True, enable=(current_mode in ("percent", "edge_percent"))
         )
         cmds.floatFieldGrp(
             distance_field, e=True, enable=(current_mode == "absolute")
         )
 
     def execute(*_):
-        current_mode = (
-            "percent"
-            if cmds.optionMenu(mode_menu, q=True, select=True) == 1
-            else "absolute"
-        )
+        selected_mode = cmds.optionMenu(mode_menu, q=True, select=True)
+        current_mode = "percent" if selected_mode == 1 else ("edge_percent" if selected_mode == 2 else "absolute")
         distance = cmds.floatFieldGrp(distance_field, q=True, value1=True)
         percent_ui = cmds.floatFieldGrp(percent_field, q=True, value1=True)
         segments = cmds.intFieldGrp(segments_field, q=True, value1=True)
         flip = cmds.checkBoxGrp(flip_check, q=True, value1=True)
 
-        if current_mode == "percent" and not (0.0 < percent_ui < 100.0):
+        if current_mode in ("percent", "edge_percent") and not (0.0 < percent_ui < 100.0):
             cmds.error("边界百分比必须大于 0 且小于 100。")
         if current_mode == "absolute" and distance <= 0.0:
             cmds.error("固定距离必须大于 0。")
@@ -672,11 +736,8 @@ def show():
     )
 
     saved_mode = _get_string(OPT_MODE, "percent")
-    cmds.optionMenu(
-        mode_menu,
-        edit=True,
-        select=1 if saved_mode == "percent" else 2,
-    )
+    saved_select = {"percent": 1, "edge_percent": 2, "absolute": 3}.get(saved_mode, 1)
+    cmds.optionMenu(mode_menu, edit=True, select=saved_select)
 
     sync_enabled()
     cmds.showWindow(win)
