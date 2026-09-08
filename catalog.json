@@ -9,7 +9,7 @@
         {
           "id": "round-chamfer",
           "name": "圆角切角",
-          "module": "maya_user.polygon_modeling.round_chamfer_ui"
+          "module": "maya_user.polygon_modeling.round_chamfer"
         },
         {
           "id": "pivot-bottom-origin-freeze",
