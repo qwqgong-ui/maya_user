@@ -1,0 +1,27 @@
+name: Apply round chamfer update
+
+on:
+  push:
+    paths:
+      - .github/workflows/apply-round-chamfer.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patch
+        run: python .github/patch_round_chamfer.py
+      - name: Syntax check
+        run: python -m py_compile scripts/maya_user/polygon_modeling/round_chamfer.py
+      - name: Commit update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/maya_user/polygon_modeling/round_chamfer.py
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: add dual-edge percentage chamfer mode"
+          git push
