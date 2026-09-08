@@ -1,3 +1,3 @@
-from .round_chamfer_ui import show
+from .round_chamfer import show
 
 __all__ = ["show"]
