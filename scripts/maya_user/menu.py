@@ -47,8 +47,8 @@ def install_menu():
 
 
 def _open_round_chamfer():
-    from maya_user.polygon_modeling import round_chamfer_ui
-    round_chamfer_ui.show()
+    from maya_user.polygon_modeling import round_chamfer
+    round_chamfer.show()
 
 
 def _pivot_bottom_origin_freeze():
